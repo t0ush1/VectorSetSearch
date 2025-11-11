@@ -25,7 +25,7 @@ public:
         delete quantizer;
     }
 
-    void build_vectors(const float* data, int size) override {
+    void build_index() override {
         if (space->metric == MAXSIM) {
             quantizer = new faiss::IndexFlatIP(dim);
             index = new faiss::IndexIVFPQ(quantizer, dim, nlist, m, nbits, faiss::METRIC_INNER_PRODUCT);
@@ -34,8 +34,8 @@ public:
             index = new faiss::IndexIVFPQ(quantizer, dim, nlist, m, nbits, faiss::METRIC_L2);
         }
 
-        index->train(size, data);
-        index->add(size, data);
+        index->train(vec_num, vec_data);
+        index->add(vec_num, vec_data);
     }
 
     std::unordered_set<int> search_candidates(const float* q_data, int q_len, int q_k) override {

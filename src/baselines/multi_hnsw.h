@@ -313,14 +313,14 @@ public:
         return next_id;
     }
 
-    void add_point(const float* data, int len, id_t vid) {
-        id_t cur_id = vid;
-        cur_elements++;
+    id_t add_point(const float* data, int len) {
+        id_t cur_id = cur_elements++;
         int cur_level = get_random_level();
         element_levels[cur_id] = cur_level;
         element_lens[cur_id] = len;
 
         elements[cur_id] = (char*)malloc(size_links_level0 + space->data_size * len);
+        memset(addr_link_level0(cur_id), 0, size_links_level0);
         memcpy(addr_data(cur_id), data, space->data_size * len);
 
         if (cur_level > 0) {
@@ -331,7 +331,7 @@ public:
         if (enterpoint == -1) {
             enterpoint = 0;
             max_level = cur_level;
-            return;
+            return cur_id;
         }
 
         id_t ep_id = enterpoint;
@@ -349,6 +349,8 @@ public:
             enterpoint = cur_id;
             max_level = cur_level;
         }
+        
+        return cur_id;
     }
 
     std::priority_queue<std::pair<float, id_t>> search_knn(const float* query, int len, size_t k) {

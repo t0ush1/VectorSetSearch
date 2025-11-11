@@ -15,18 +15,22 @@
 #include "baselines/multi_hnsw_index.h"
 #include "baselines/single_hnsw_index.h"
 
+#include "semi_hnsw_index.h"
+
 namespace vss {
 class VSSRunner {
 public:
+    struct BuildRecord {
+        size_t time;
+        size_t memory;
+    };
+
     struct QueryRecord {
         int ef;
         int q_num;
-
         size_t time;
-
         int hit;
         int total;
-
         std::vector<std::pair<std::string, long>> metrics;
     };
 
@@ -76,9 +80,12 @@ public:
         } else if (index_name == "single_hnsw") {
             index = new SingleHNSWIndex(dim, space, 16, 200);
             efs = {10, 20, 40, 60, 80, 100, 200, 500, 1000, 1500, 2000, 3000, 4000, 5000};
-        } else if (index_name == "seg") {
+        } else if (index_name == "multi_hnsw") {
             index = new MultiHNSWIndex(dim, space, 16, 200);
             efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
+        } else if (index_name == "semi_hnsw") {
+            index = new SemiHNSWIndex(dim, space, 16, 200, 2, 1);
+            efs = {10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 250, 300, 350, 400, 450, 500};
         } else {
             std::cerr << "Unknown index: " << index_name << std::endl;
             std::exit(-1);
@@ -93,16 +100,22 @@ public:
     ~VSSRunner() {
         delete base_dataset;
         delete query_dataset;
+        delete space;
         delete index;
     }
 
     void run_build() {
+        BuildRecord record;
         auto begin = std::chrono::high_resolution_clock::now();
         index->build(base_dataset);
         auto end = std::chrono::high_resolution_clock::now();
-        size_t time = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
-        std::cout << "Build Time: " << time << " us" << std::endl;
+        record.time = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+        std::cout << "Build Time: " << record.time << " us" << std::endl;
         std::cout << std::endl;
+
+        // TODO 查看内存开销
+
+        save_build_record(record);
     }
 
     void run_search() {
@@ -126,7 +139,7 @@ public:
             }
         }
 
-        save_records(records);
+        save_query_records(records);
     }
 
     QueryRecord run_search_once(int k, int ef) {
@@ -151,9 +164,13 @@ public:
             }
 
             assert(result.size() <= k);
+            std::unordered_set<int> unique;
             while (result.size() > 0) {
-                int id = result.top().second;
+                unique.insert(result.top().second);
                 result.pop();
+            }
+
+            for (int id : unique) {
                 if (groundtruth[i].find(id) != groundtruth[i].end()) {
                     record.hit++;
                 }
@@ -166,8 +183,22 @@ public:
         return record;
     }
 
-    void save_records(std::vector<QueryRecord>& records) {
-        std::string csv_name = index_name + "-search-" + log_time + ".csv";
+    void save_build_record(BuildRecord record) {
+        std::string log_name = index_name + "-build-" + log_time + ".log";
+        fs::path log_path = fs::path("../log") / data_dir / metric_name / log_name;
+        fs::create_directories(log_path.parent_path());
+
+        std::ofstream ofs(log_path);
+        cerr_if(!ofs.is_open(), "Failed to open " + log_name);
+
+        ofs << "time: " << record.time << std::endl;
+        ofs << "memory: " << record.memory << std::endl;
+        ofs.close();
+        std::cout << "Build record written to " << log_path << std::endl;
+    }
+
+    void save_query_records(std::vector<QueryRecord>& records) {
+        std::string csv_name = index_name + "-query-" + log_time + ".csv";
         fs::path csv_path = fs::path("../log") / data_dir / metric_name / csv_name;
         fs::create_directories(csv_path.parent_path());
 

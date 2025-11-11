@@ -17,11 +17,11 @@ public:
 
     ~HNSWPointwiseIndex() { delete hnsw; }
 
-    void build_vectors(const float* data, int size) override {
-        hnsw = new hnswlib::HierarchicalNSW<float>(space->space, size, M, ef_construction);
+    void build_index() override {
+        hnsw = new hnswlib::HierarchicalNSW<float>(space->space, vec_num, M, ef_construction);
 
-        const float* vec = data;
-        for (size_t i = 0; i < size; i++, vec += dim) {
+        const float* vec = vec_data;
+        for (size_t i = 0; i < vec_num; i++, vec += dim) {
             hnsw->addPoint(vec, i);
         }
     }

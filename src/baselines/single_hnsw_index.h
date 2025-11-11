@@ -16,11 +16,11 @@ public:
 
     ~SingleHNSWIndex() { delete hnsw; }
 
-    void build_vectors(const float* data, int size) override {
-        hnsw = new SingleHNSW<float>(space->space, size, M, ef_construction);
+    void build_index() override {
+        hnsw = new SingleHNSW<float>(space->space, vec_num, M, ef_construction);
 
-        const float* vec = data;
-        for (size_t i = 0; i < size; i++, vec += dim) {
+        const float* vec = vec_data;
+        for (size_t i = 0; i < vec_num; i++, vec += dim) {
             hnsw->add_point(vec, i);
         }
     }
@@ -51,8 +51,8 @@ public:
 
     void reset_metrics() override {
         RerankIndex::reset_metrics();
-        hnsw->metric_distance_computations = 0;
         hnsw->metric_hops = 0;
+        hnsw->metric_distance_computations = 0;
     }
 };
 

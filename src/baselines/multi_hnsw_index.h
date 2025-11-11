@@ -19,7 +19,7 @@ public:
     void build(const VSSDataset* base_dataset) {
         hnsw = new MultiHNSW(space, base_dataset->seq_num, M, ef_construction);
         for (int i = 0; i < base_dataset->seq_num; i++) {
-            hnsw->add_point(base_dataset->seq_data[i], base_dataset->seq_len[i], i);
+            hnsw->add_point(base_dataset->seq_data[i], base_dataset->seq_len[i]);
         }
     }
 

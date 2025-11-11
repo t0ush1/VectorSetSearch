@@ -21,6 +21,9 @@ public:
 
 class RerankIndex : public VSSIndex {
 public:
+    float* vec_data;
+    int vec_num;
+
     int seq_num;
     std::vector<const float*> seq_data;
     std::vector<int> seq_len;
@@ -31,25 +34,34 @@ public:
     long metric_cand_gen_time;
     long metric_rerank_time;
 
-    virtual void build_vectors(const float* data, int size) = 0;
+    virtual void build_index() = 0;
     virtual std::unordered_set<int> search_candidates(const float* q_data, int q_len, int q_k) = 0;
 
     RerankIndex(int dim, VSSSpace* space) : VSSIndex(dim, space) {}
 
-    void build(const VSSDataset* base_dataset) override {
-        seq_num = base_dataset->seq_num;
-        seq_data = base_dataset->seq_data;
-        seq_len = base_dataset->seq_len;
+    ~RerankIndex() { free(vec_data); }
 
-        vec_to_seq.resize(base_dataset->size);
-        int label = 0;
+    void build(const VSSDataset* base_dataset) override {
+        vec_num = base_dataset->size;
+        vec_data = new float[vec_num * dim];
+        memcpy(vec_data, base_dataset->data, vec_num * space->data_size);
+
+        seq_num = base_dataset->seq_num;
+        seq_len = base_dataset->seq_len;
+        seq_data.resize(seq_num);
+        seq_data[0] = vec_data;
+        for (int i = 1; i < seq_num; i++) {
+            seq_data[i] = seq_data[i - 1] + seq_len[i - 1] * dim;
+        }
+
+        vec_to_seq.reserve(vec_num);
         for (int i = 0; i < seq_num; i++) {
             for (int j = 0; j < seq_len[i]; j++) {
-                vec_to_seq[label++] = i;
+                vec_to_seq.push_back(i);
             }
         }
 
-        build_vectors(base_dataset->data, base_dataset->size);
+        build_index();
     }
 
     std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {

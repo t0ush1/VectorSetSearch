@@ -8,7 +8,7 @@ class BruteForceIndex : public RerankIndex {
 public:
     BruteForceIndex(int dim, VSSSpace* space) : RerankIndex(dim, space) {}
 
-    void build_vectors(const float* data, int size) override {}
+    void build_index() override {}
 
     std::unordered_set<int> search_candidates(const float* q_data, int q_len, int q_k) override {
         std::unordered_set<int> candidates;
