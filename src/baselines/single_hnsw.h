@@ -66,7 +66,6 @@ public:
     std::vector<int> element_levels;
 
     std::default_random_engine level_generator;
-    std::default_random_engine update_probability_generator;
 
     long metric_distance_computations;
     long metric_hops;
@@ -103,7 +102,6 @@ public:
         this->element_levels.resize(max_elements);
 
         this->level_generator.seed(random_seed);
-        this->update_probability_generator.seed(random_seed + 1);
 
         this->metric_distance_computations = 0;
         this->metric_hops = 0;
@@ -339,13 +337,13 @@ public:
         return next_id;
     }
 
-    void add_point(const void* query, label_t label) {
+    void add_point(const void* data, label_t label) {
         id_t cur_id = cur_elements++;
         int cur_level = get_random_level();
         element_levels[cur_id] = cur_level;
 
         memset(addr_element(cur_id), 0, size_element);
-        memcpy(addr_data(cur_id), query, data_size);
+        memcpy(addr_data(cur_id), data, data_size);
         memcpy(addr_label(cur_id), &label, sizeof(label_t));
 
         if (cur_level > 0) {
@@ -362,11 +360,11 @@ public:
         id_t ep_id = enterpoint;
 
         if (cur_level < max_level) {
-            ep_id = search_down_to_level<false>(enterpoint, query, cur_level);
+            ep_id = search_down_to_level<false>(enterpoint, data, cur_level);
         }
 
         for (int level = std::min(cur_level, max_level); level >= 0; level--) {
-            auto top_candidates = search_level<false>(ep_id, query, level);
+            auto top_candidates = search_level<false>(ep_id, data, level);
             ep_id = mutually_connect_new_element(cur_id, top_candidates, level);
         }
 

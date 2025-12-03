@@ -15,7 +15,9 @@ public:
 
     virtual void build(const VSSDataset* base_dataset) = 0;
     virtual std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) = 0;
-    virtual std::vector<std::pair<std::string, long>> get_metrics() { return {}; };
+    virtual void prepare(const float* q_data, int q_len, int k, int ef) {};
+    virtual std::vector<std::pair<std::string, long>> get_stats() { return {}; }
+    virtual std::vector<std::pair<std::string, long>> get_metrics() { return {}; }
     virtual void reset_metrics() {};
 };
 
@@ -33,6 +35,7 @@ public:
     long metric_cand_num;
     long metric_cand_gen_time;
     long metric_rerank_time;
+    long metric_rerank_dist_comps;
 
     virtual void build_index() = 0;
     virtual std::unordered_set<int> search_candidates(const float* q_data, int q_len, int q_k) = 0;
@@ -82,6 +85,9 @@ public:
         metric_cand_num += candidates.size();
         metric_cand_gen_time += std::chrono::duration_cast<std::chrono::microseconds>(mid - begin).count();
         metric_rerank_time += std::chrono::duration_cast<std::chrono::microseconds>(end - mid).count();
+        for (int id : candidates) {
+            metric_rerank_dist_comps += q_len * seq_len[id];
+        }
 
         return result;
     }
@@ -91,6 +97,7 @@ public:
             {"cand_num", metric_cand_num},
             {"cand_gen_time", metric_cand_gen_time},
             {"rerank_time", metric_rerank_time},
+            {"rerank_dist_comps", metric_rerank_dist_comps},
         };
     }
 
@@ -98,6 +105,7 @@ public:
         metric_cand_num = 0;
         metric_cand_gen_time = 0;
         metric_rerank_time = 0;
+        metric_rerank_dist_comps = 0;
     }
 };
 

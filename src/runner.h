@@ -15,14 +15,16 @@
 #include "baselines/multi_hnsw_index.h"
 #include "baselines/single_hnsw_index.h"
 
-#include "semi_hnsw_index.h"
+#include "paral_hnsw_index.h"
 
 namespace vss {
 class VSSRunner {
 public:
     struct BuildRecord {
         size_t time;
-        size_t memory;
+        size_t peak_memory;
+        size_t current_memory;
+        std::vector<std::pair<std::string, long>> stats;
     };
 
     struct QueryRecord {
@@ -73,19 +75,20 @@ public:
             efs = {0};
         } else if (index_name == "hnsw") {
             index = new HNSWPointwiseIndex(dim, space, 16, 200);
-            efs = {10, 20, 40, 60, 80, 100, 200, 500, 1000, 1500, 2000, 3000, 4000, 5000};
+            efs = {10, 20, 40, 60, 80, 100, 200, 500, 1000, 1500, 2000};
         } else if (index_name == "ivfpq") {
             index = new IVFPQPointwiseIndex(dim, space, 100, 8, 8);
             efs = {10, 20, 50, 100, 200, 500};
         } else if (index_name == "single_hnsw") {
             index = new SingleHNSWIndex(dim, space, 16, 200);
-            efs = {10, 20, 40, 60, 80, 100, 200, 500, 1000, 1500, 2000, 3000, 4000, 5000};
+            efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
         } else if (index_name == "multi_hnsw") {
             index = new MultiHNSWIndex(dim, space, 16, 200);
             efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
-        } else if (index_name == "semi_hnsw") {
-            index = new SemiHNSWIndex(dim, space, 16, 200, 2, 1);
-            efs = {10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 250, 300, 350, 400, 450, 500};
+        } else if (index_name == "paral_hnsw") {
+            index = new ParalHNSWIndex(dim, space, 16, 200);
+            // efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
+            efs = {5, 10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200};
         } else {
             std::cerr << "Unknown index: " << index_name << std::endl;
             std::exit(-1);
@@ -104,8 +107,19 @@ public:
         delete index;
     }
 
-    void run_build() {
-        BuildRecord record;
+    void run() {
+        BuildRecord build_record;
+        run_build(build_record);
+        record_memory_usage(build_record);
+
+        std::vector<QueryRecord> query_records(efs.size());
+        run_search(query_records);
+
+        save_build_record(build_record);
+        save_query_records(query_records);
+    }
+
+    void run_build(BuildRecord& record) {
         auto begin = std::chrono::high_resolution_clock::now();
         index->build(base_dataset);
         auto end = std::chrono::high_resolution_clock::now();
@@ -113,37 +127,35 @@ public:
         std::cout << "Build Time: " << record.time << " us" << std::endl;
         std::cout << std::endl;
 
-        // TODO 查看内存开销
-
-        save_build_record(record);
+        record.stats = index->get_stats();
+        for (const auto& [name, value] : record.stats) {
+            std::cout << "Stat (" << name << "): " << value << std::endl;
+        }
     }
 
-    void run_search() {
-        std::vector<QueryRecord> records;
+    void run_search(std::vector<QueryRecord>& records) {
         int k = groundtruth[0].size();
 
         for (int i = 0; i < efs.size(); i++) {
-            QueryRecord r = run_search_once(k, efs[i]);
-            records.push_back(r);
+            QueryRecord& r = records[i];
+            run_search_once(r, k, efs[i]);
 
+            float recall = r.hit * 1.0 / r.total;
             std::cout << "EF: " << r.ef << std::endl;
             std::cout << "Time: " << r.time << " us, " << r.time / r.q_num << " us" << std::endl;
-            std::cout << "Recall: " << r.hit << "/" << r.total << "=" << r.hit * 1.0 / r.total << std::endl;
+            std::cout << "Recall: " << r.hit << "/" << r.total << "=" << recall << std::endl;
             for (const auto& [name, value] : r.metrics) {
                 std::cout << "Metric (" << name << "): " << value << ", " << value / r.q_num << std::endl;
             }
             std::cout << std::endl;
 
-            if (r.hit >= 0.999 * r.total) {
+            if (recall > 0.999) {
                 break;
             }
         }
-
-        save_query_records(records);
     }
 
-    QueryRecord run_search_once(int k, int ef) {
-        QueryRecord record = {};
+    QueryRecord run_search_once(QueryRecord& record, int k, int ef) {
         record.ef = ef;
         index->reset_metrics();
         record.metrics = index->get_metrics();
@@ -152,6 +164,7 @@ public:
             auto [q_data, q_len] = query_dataset->get_data_len(i);
 
             index->reset_metrics();
+            index->prepare(q_data, q_len, k, ef);
 
             auto begin = std::chrono::high_resolution_clock::now();
             auto result = index->search(q_data, q_len, k, ef);
@@ -183,6 +196,30 @@ public:
         return record;
     }
 
+    void record_memory_usage(BuildRecord& record) {
+        std::ifstream file_stream("/proc/self/status");
+        std::string line;
+
+        auto record_mem_field = [&](std::string key, std::string label, size_t& value) {
+            if (line.find(key) != std::string::npos) {
+                size_t begin = line.find_first_of("0123456789");
+                size_t end = line.find_last_of("0123456789");
+                value = std::stoull(line.substr(begin, end - begin + 1)) / 1024;
+                std::cout << label << ": " << value << " MB" << std::endl;
+            }
+        };
+
+        while (std::getline(file_stream, line)) {
+            record_mem_field("VmHWM", "Peak Physical Memory Usage", record.peak_memory);
+            record_mem_field("VmRSS", "Current Physical Memory Usage", record.current_memory);
+            // print_mem_field("VmPeak", "Peak Virtual Memory Usage");
+            // print_mem_field("VmSize", "Current Virtual Memory Usage");
+            // print_mem_field("VmData", "Data Segment Virtual Memory Usage");
+        }
+
+        std::cout << std::endl;
+    }
+
     void save_build_record(BuildRecord record) {
         std::string log_name = index_name + "-build-" + log_time + ".log";
         fs::path log_path = fs::path("../log") / data_dir / metric_name / log_name;
@@ -191,8 +228,13 @@ public:
         std::ofstream ofs(log_path);
         cerr_if(!ofs.is_open(), "Failed to open " + log_name);
 
-        ofs << "time: " << record.time << std::endl;
-        ofs << "memory: " << record.memory << std::endl;
+        ofs << "time: " << record.time << " us" << std::endl;
+        ofs << "peak memory: " << record.peak_memory << " MB" << std::endl;
+        ofs << "current memory: " << record.current_memory << " MB" << std::endl;
+        for (const auto& [name, value] : record.stats) {
+            ofs << name << ": " << value << std::endl;
+        }
+
         ofs.close();
         std::cout << "Build record written to " << log_path << std::endl;
     }
@@ -213,6 +255,9 @@ public:
         ofs << std::endl;
 
         for (const auto& r : records) {
+            if (r.q_num == 0) {
+                break;
+            }
             ofs << r.ef << "," << r.time << "," << r.hit << "," << r.total << "," << r.q_num;
             for (const auto& m : r.metrics) {
                 ofs << "," << m.second;

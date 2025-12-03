@@ -8,8 +8,7 @@ int main(int argc, char* argv[]) {
     }
 
     VSSRunner runner(std::stoi(argv[1]), argv[2], argv[3], argv[4]);
-    runner.run_build();
-    runner.run_search();
+    runner.run();
 
     return 0;
 }
