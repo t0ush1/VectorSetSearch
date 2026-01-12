@@ -11,13 +11,18 @@
 
 #include "baselines/brute_force.h"
 #include "baselines/hnsw_pointwise.h"
+#include "baselines/hnswlib_pointwise.h"
 #include "baselines/ivfpq_pointwise.h"
-#include "baselines/multi_hnsw_index.h"
-#include "baselines/single_hnsw_index.h"
+#include "baselines/muvera.h"
+#include "baselines/set_hnsw.h"
 
+#include "dual_hnsw_index.h"
 #include "paral_hnsw_index.h"
+#include "prune_hnsw_index.h"
+#include "sketch_hnsw_index.h"
 
 namespace vss {
+
 class VSSRunner {
 public:
     struct BuildRecord {
@@ -70,25 +75,31 @@ public:
             std::exit(-1);
         }
 
+        efs = {10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200};
         if (index_name == "brute_force") {
             index = new BruteForceIndex(dim, space);
             efs = {0};
-        } else if (index_name == "hnsw") {
-            index = new HNSWPointwiseIndex(dim, space, 16, 200);
-            efs = {10, 20, 40, 60, 80, 100, 200, 500, 1000, 1500, 2000};
+        } else if (index_name == "hnswlib") {
+            index = new HNSWLibPointwiseIndex(dim, space, 16, 200);
         } else if (index_name == "ivfpq") {
             index = new IVFPQPointwiseIndex(dim, space, 100, 8, 8);
-            efs = {10, 20, 50, 100, 200, 500};
-        } else if (index_name == "single_hnsw") {
-            index = new SingleHNSWIndex(dim, space, 16, 200);
-            efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
-        } else if (index_name == "multi_hnsw") {
-            index = new MultiHNSWIndex(dim, space, 16, 200);
-            efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
+        } else if (index_name == "hnsw") {
+            index = new HNSWPointwiseIndex(dim, space, 16, 200);
+        } else if (index_name == "set_hnsw") {
+            index = new SetHNSWIndex(dim, space, 16, 200);
+        } else if (index_name == "muvera") {
+            index = new MuveraIndex<true>(dim, space, 20, 5, 32);
+            efs = {200, 300, 400, 500, 600, 700, 800};
+            // index = new MuveraIndex<false>(dim, space, 20, 5, 32);
+            // efs = {700, 725, 750, 775, 800, 825, 850, 875, 900};
         } else if (index_name == "paral_hnsw") {
             index = new ParalHNSWIndex(dim, space, 16, 200);
-            // efs = {10, 20, 30, 40, 50, 60, 80, 100, 200};
-            efs = {5, 10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200};
+        } else if (index_name == "prune_hnsw") {
+            index = new PruneHNSWIndex(dim, space, 16, 200);
+        } else if (index_name == "dual_hnsw") {
+            index = new DualHNSWIndex(dim, space, 16, 200);
+        } else if (index_name == "sketch_hnsw") {
+            index = new SketchHNSWIndex(dim, space, 16, 200);
         } else {
             std::cerr << "Unknown index: " << index_name << std::endl;
             std::exit(-1);
@@ -149,7 +160,7 @@ public:
             }
             std::cout << std::endl;
 
-            if (recall > 0.999) {
+            if (r.hit == r.total) {
                 break;
             }
         }
@@ -160,7 +171,7 @@ public:
         index->reset_metrics();
         record.metrics = index->get_metrics();
 
-        for (int i = 0; i < query_dataset->seq_num; i++) {
+        for (int i = 0; i < query_dataset->set_num; i++) {
             auto [q_data, q_len] = query_dataset->get_data_len(i);
 
             index->reset_metrics();
@@ -212,9 +223,9 @@ public:
         while (std::getline(file_stream, line)) {
             record_mem_field("VmHWM", "Peak Physical Memory Usage", record.peak_memory);
             record_mem_field("VmRSS", "Current Physical Memory Usage", record.current_memory);
-            // print_mem_field("VmPeak", "Peak Virtual Memory Usage");
-            // print_mem_field("VmSize", "Current Virtual Memory Usage");
-            // print_mem_field("VmData", "Data Segment Virtual Memory Usage");
+            // record_mem_field("VmPeak", "Peak Virtual Memory Usage");
+            // record_mem_field("VmSize", "Current Virtual Memory Usage");
+            // record_mem_field("VmData", "Data Segment Virtual Memory Usage");
         }
 
         std::cout << std::endl;

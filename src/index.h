@@ -26,11 +26,9 @@ public:
     float* vec_data;
     int vec_num;
 
-    int seq_num;
-    std::vector<const float*> seq_data;
-    std::vector<int> seq_len;
-
-    std::vector<int> vec_to_seq;
+    int set_num;
+    std::vector<const float*> set_data;
+    std::vector<int> set_len;
 
     long metric_cand_num;
     long metric_cand_gen_time;
@@ -42,26 +40,19 @@ public:
 
     RerankIndex(int dim, VSSSpace* space) : VSSIndex(dim, space) {}
 
-    ~RerankIndex() { free(vec_data); }
+    ~RerankIndex() { delete[] vec_data; }
 
     void build(const VSSDataset* base_dataset) override {
         vec_num = base_dataset->size;
         vec_data = new float[vec_num * dim];
         memcpy(vec_data, base_dataset->data, vec_num * space->data_size);
 
-        seq_num = base_dataset->seq_num;
-        seq_len = base_dataset->seq_len;
-        seq_data.resize(seq_num);
-        seq_data[0] = vec_data;
-        for (int i = 1; i < seq_num; i++) {
-            seq_data[i] = seq_data[i - 1] + seq_len[i - 1] * dim;
-        }
-
-        vec_to_seq.reserve(vec_num);
-        for (int i = 0; i < seq_num; i++) {
-            for (int j = 0; j < seq_len[i]; j++) {
-                vec_to_seq.push_back(i);
-            }
+        set_num = base_dataset->set_num;
+        set_len = base_dataset->set_len;
+        set_data.resize(set_num);
+        set_data[0] = vec_data;
+        for (int i = 1; i < set_num; i++) {
+            set_data[i] = set_data[i - 1] + set_len[i - 1] * dim;
         }
 
         build_index();
@@ -74,7 +65,7 @@ public:
 
         std::priority_queue<std::pair<float, int>> result;
         for (int id : candidates) {
-            float dist = space->distance(q_data, q_len, seq_data[id], seq_len[id]);
+            float dist = space->distance(q_data, q_len, set_data[id], set_len[id]);
             result.emplace(dist, id);
             if (result.size() > k) {
                 result.pop();
@@ -86,7 +77,7 @@ public:
         metric_cand_gen_time += std::chrono::duration_cast<std::chrono::microseconds>(mid - begin).count();
         metric_rerank_time += std::chrono::duration_cast<std::chrono::microseconds>(end - mid).count();
         for (int id : candidates) {
-            metric_rerank_dist_comps += q_len * seq_len[id];
+            metric_rerank_dist_comps += q_len * set_len[id];
         }
 
         return result;

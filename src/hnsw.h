@@ -9,7 +9,7 @@ typedef unsigned int id_t;
 typedef unsigned int linklist_t;
 
 template<typename dist_t>
-class SingleHNSW {
+class HNSW {
 public:
     class VisitedList {
     public:
@@ -70,7 +70,7 @@ public:
     long metric_distance_computations;
     long metric_hops;
 
-    SingleHNSW(hnswlib::SpaceInterface<dist_t>* space, size_t max_elements, size_t M = 16, size_t ef_construction = 200,
+    HNSW(hnswlib::SpaceInterface<dist_t>* space, size_t max_elements, size_t M = 16, size_t ef_construction = 200,
                size_t random_seed = 100) {
         this->max_elements = max_elements;
         this->cur_elements = 0;
@@ -107,8 +107,9 @@ public:
         this->metric_hops = 0;
     }
 
-    ~SingleHNSW() {
-        free(visited_list);
+    ~HNSW() {
+        delete visited_list;
+        
         free(elements);
         for (id_t i = 0; i < cur_elements; i++) {
             if (element_levels[i] > 0) {

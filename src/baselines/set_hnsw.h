@@ -1,5 +1,6 @@
 #pragma once
 
+#include "index.h"
 #include "space.h"
 
 namespace vss {
@@ -7,7 +8,7 @@ namespace vss {
 typedef unsigned int id_t;
 typedef unsigned int linklist_t;
 
-class MultiHNSW {
+class SetHNSW {
 public:
     class VisitedList {
     public:
@@ -63,8 +64,8 @@ public:
     long metric_distance_computations;
     long metric_hops;
 
-    MultiHNSW(VSSSpace* space, size_t max_elements, size_t M = 16, size_t ef_construction = 200,
-              size_t random_seed = 100) {
+    SetHNSW(VSSSpace* space, size_t max_elements, size_t M = 16, size_t ef_construction = 200,
+            size_t random_seed = 100) {
         this->space = space;
 
         this->max_elements = max_elements;
@@ -95,8 +96,9 @@ public:
         this->metric_hops = 0;
     }
 
-    ~MultiHNSW() {
-        free(visited_list);
+    ~SetHNSW() {
+        delete visited_list;
+
         for (id_t i = 0; i < cur_elements; i++) {
             free(elements[i]);
             if (element_levels[i] > 0) {
@@ -349,7 +351,7 @@ public:
             enterpoint = cur_id;
             max_level = cur_level;
         }
-        
+
         return cur_id;
     }
 
@@ -360,6 +362,48 @@ public:
             top_candidates.pop();
         }
         return top_candidates;
+    }
+};
+
+class SetHNSWIndex : public VSSIndex {
+public:
+    int M;
+    int ef_construction;
+    SetHNSW* hnsw;
+
+    SetHNSWIndex(int dim, VSSSpace* space, int M, int ef_construction)
+        : VSSIndex(dim, space), M(M), ef_construction(ef_construction) {}
+
+    ~SetHNSWIndex() { delete hnsw; }
+
+    void build(const VSSDataset* base_dataset) {
+        hnsw = new SetHNSW(space, base_dataset->set_num, M, ef_construction);
+        for (int i = 0; i < base_dataset->set_num; i++) {
+            hnsw->add_point(base_dataset->set_data[i], base_dataset->set_len[i]);
+        }
+    }
+
+    std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {
+        hnsw->ef = ef;
+        auto result = hnsw->search_knn(q_data, q_len, k);
+        std::priority_queue<std::pair<float, int>> final_result;
+        while (!result.empty()) {
+            final_result.emplace(result.top());
+            result.pop();
+        }
+        return final_result;
+    }
+
+    std::vector<std::pair<std::string, long>> get_metrics() override {
+        return {
+            {"hops", hnsw->metric_hops},
+            {"dist_comps", hnsw->metric_distance_computations},
+        };
+    }
+
+    void reset_metrics() override {
+        hnsw->metric_distance_computations = 0;
+        hnsw->metric_hops = 0;
     }
 };
 

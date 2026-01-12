@@ -1,4 +1,4 @@
-# VectorSequence
+# VectorSetSearch
 
 ## Install
 
@@ -12,20 +12,22 @@ make -C build -j faiss
 make -C build install
 ```
 
+eigen:
+
+```
+wget https://gitlab.com/libeigen/eigen/-/archive/5.0.0/eigen-5.0.0.tar.gz
+tar -xvzf eigen-5.0.0.tar.gz
+cd eigen-5.0.0
+cmake -DCMAKE_INSTALL_PREFIX=$HOME/local/eigen -B build .
+make -C build install
+```
+
 ## Build & Run
 
 ```
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make
-./vss_test 128 maxsim ms-marco/vectors-colbert/k10_s1K_v137K set
-./vss_test 768 dtw droid/vectors-dinov2/64-32-Uni_8_16-10-1K seq
-```
-
-
-
-for windows mingw:
-
-```
-cmake -G "MinGW Makefiles" ...
+./vss_test 128 maxsim ms-marco/vectors-colbert/k10_s1K_v137K single_hnsw
+./vss_test 768 dtw droid/vectors-dinov2/64-32-Uni_8_16-10-1K multi_hnsw
 ```

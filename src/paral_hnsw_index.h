@@ -1,7 +1,7 @@
 #pragma once
 #include <set>
 
-#include "baselines/single_hnsw.h"
+#include "hnsw.h"
 #include "index.h"
 
 namespace vss {
@@ -17,7 +17,7 @@ public:
 
     int M;
     int ef_construction;
-    SingleHNSW<float>* hnsw;
+    HNSW<float>* hnsw;
 
     std::default_random_engine search_generator;
 
@@ -34,8 +34,8 @@ public:
         vec_data = new float[vec_num * dim];
         memcpy(vec_data, base_dataset->data, vec_num * space->data_size);
 
-        base_num = base_dataset->seq_num;
-        base_len = base_dataset->seq_len;
+        base_num = base_dataset->set_num;
+        base_len = base_dataset->set_len;
         base_data.resize(base_num);
         base_data[0] = vec_data;
         for (int i = 1; i < base_num; i++) {
@@ -49,7 +49,7 @@ public:
             }
         }
 
-        hnsw = new SingleHNSW<float>(space->space, vec_num, M, ef_construction);
+        hnsw = new HNSW<float>(space->space, vec_num, M, ef_construction);
 
         const float* data = vec_data;
         for (int i = 0; i < vec_num; i++, data += dim) {
@@ -82,7 +82,7 @@ public:
                 ctx.top_candidates.pop();
             }
         }
-        ctx.top_cand_back.clear();
+        ctx.top_cand_back.clear(); // 不清除垃圾桶 ?
         float lower_bound = ctx.top_candidates.top().first;
 
         while (!ctx.candidate_set.empty()) {
@@ -104,6 +104,8 @@ public:
                     continue;
                 }
                 ctx.visited_list[nei_id] = true;
+
+                // 在这里将元素加入垃圾桶，将topk移出垃圾桶。参考IGP
 
                 hnsw->metric_distance_computations++;
 
@@ -154,22 +156,22 @@ public:
     //     std::priority_queue<std::pair<float, int>> result;
 
     //     auto update = [&](int B) {
-    //         if (hits[B] != 3) {
+    //         if (hits[B] != 2) {
     //             return;
     //         }
     //         hits[B]++;
 
-    //         // bool good = result.size() < k;
-    //         // if (!good) {
-    //         //     float lower_bound = 0;
-    //         //     for (int q = 0; q < q_len; q++) {
-    //         //         lower_bound += contexts[q].found[B] ? contexts[q].dists[B] : contexts[q].radius;
-    //         //     }
-    //         //     good = lower_bound < result.top().first;
-    //         // }
-    //         // if (!good) {
-    //         //     return;
-    //         // }
+    //         bool good = result.size() < k;
+    //         if (!good) {
+    //             float lower_bound = 0;
+    //             for (int q = 0; q < q_len; q++) {
+    //                 lower_bound += contexts[q].found[B] ? contexts[q].dists[B] : contexts[q].radius;
+    //             }
+    //             good = lower_bound < result.top().first;
+    //         }
+    //         if (!good) {
+    //             return;
+    //         }
 
     //         float dist = space->distance(q_data, q_len, base_data[B], base_len[B]);
     //         metric_cand_num++;
