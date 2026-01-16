@@ -53,8 +53,9 @@ public:
 
     std::vector<std::pair<std::string, long>> get_metrics() override {
         auto metrics = RerankIndex::get_metrics();
-        metrics.push_back({"hops", hnsw->metric_hops});
-        metrics.push_back({"dist_comps", hnsw->metric_distance_computations + this->metric_rerank_dist_comps});
+        metrics.push_back({"hnsw_hops", hnsw->metric_hops});
+        metrics.push_back({"hnsw_dist_comps", hnsw->metric_distance_computations});
+        metrics.push_back({"tot_dist_comps", hnsw->metric_distance_computations + metric_rerank_dist_comps});
         return metrics;
     }
 

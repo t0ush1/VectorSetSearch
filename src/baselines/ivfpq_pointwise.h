@@ -35,13 +35,8 @@ public:
             }
         }
 
-        if (space->metric == MAXSIM) {
-            quantizer = new faiss::IndexFlatIP(dim);
-            index = new faiss::IndexIVFPQ(quantizer, dim, nlist, m, nbits, faiss::METRIC_INNER_PRODUCT);
-        } else {
-            quantizer = new faiss::IndexFlatL2(dim);
-            index = new faiss::IndexIVFPQ(quantizer, dim, nlist, m, nbits, faiss::METRIC_L2);
-        }
+        quantizer = new faiss::IndexFlatIP(dim);
+        index = new faiss::IndexIVFPQ(quantizer, dim, nlist, m, nbits, faiss::METRIC_INNER_PRODUCT);
 
         index->train(vec_num, vec_data);
         index->add(vec_num, vec_data);

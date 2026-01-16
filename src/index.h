@@ -23,10 +23,10 @@ public:
 
 class RerankIndex : public VSSIndex {
 public:
+    size_t vec_num;
     float* vec_data;
-    int vec_num;
 
-    int set_num;
+    size_t set_num;
     std::vector<const float*> set_data;
     std::vector<int> set_len;
 

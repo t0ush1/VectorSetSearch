@@ -18,7 +18,16 @@ eigen:
 wget https://gitlab.com/libeigen/eigen/-/archive/5.0.0/eigen-5.0.0.tar.gz
 tar -xvzf eigen-5.0.0.tar.gz
 cd eigen-5.0.0
-cmake -DCMAKE_INSTALL_PREFIX=$HOME/local/eigen -B build .
+cmake -DCMAKE_INSTALL_PREFIX=$HOME/local/Eigen3 -B build .
+make -C build install
+```
+
+pybind11:
+
+```
+git clone https://github.com/pybind/pybind11
+cd pybind11
+cmake -DCMAKE_INSTALL_PREFIX=$HOME/local/pybind11 -B build .
 make -C build install
 ```
 
@@ -28,6 +37,5 @@ make -C build install
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make
-./vss_test 128 maxsim ms-marco/vectors-colbert/k10_s1K_v137K single_hnsw
-./vss_test 768 dtw droid/vectors-dinov2/64-32-Uni_8_16-10-1K multi_hnsw
+./vss_test 128 ms-marco/vectors-colbert/k10_s1K_v63K hnsw
 ```

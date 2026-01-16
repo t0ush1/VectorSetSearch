@@ -10,16 +10,14 @@
 #include "space.h"
 
 #include "baselines/brute_force.h"
+// #include "baselines/dessert.h"
 #include "baselines/hnsw_pointwise.h"
 #include "baselines/hnswlib_pointwise.h"
 #include "baselines/ivfpq_pointwise.h"
 #include "baselines/muvera.h"
 #include "baselines/set_hnsw.h"
 
-#include "dual_hnsw_index.h"
-#include "paral_hnsw_index.h"
 #include "prune_hnsw_index.h"
-#include "sketch_hnsw_index.h"
 
 namespace vss {
 
@@ -44,7 +42,6 @@ public:
     std::string log_time;
 
     int dim;
-    std::string metric_name;
     std::string data_dir;
     std::string index_name;
 
@@ -56,24 +53,14 @@ public:
     VSSIndex* index;
     std::vector<int> efs;
 
-    VSSRunner(int dim, std::string metric_name, std::string data_dir, std::string index_name)
-        : dim(dim), metric_name(metric_name), data_dir(data_dir), index_name(index_name) {
+    VSSRunner(int dim, std::string data_dir, std::string index_name)
+        : dim(dim), data_dir(data_dir), index_name(index_name) {
         fs::path data_path = fs::path("../datasets") / data_dir;
         base_dataset = new VSSDataset(dim, data_path / "base.fvecs", data_path / "base.lens");
         query_dataset = new VSSDataset(dim, data_path / "query.fvecs", data_path / "query.lens");
-        groundtruth = read_groundtruth(data_path / ("groundtruth-" + metric_name + ".ivecs"));
-        // groundtruth = read_groundtruth(data_path / "groundtruth.ivecs");
+        groundtruth = read_groundtruth(data_path / "groundtruth.ivecs");
 
-        if (metric_name == "maxsim") {
-            space = new MaxSimSpace(dim);
-        } else if (metric_name == "dtw") {
-            space = new DTWSpace(dim);
-        } else if (metric_name == "sdtw") {
-            space = new SDTWSpace(dim);
-        } else {
-            std::cerr << "Unknown similarity metric: " << metric_name << std::endl;
-            std::exit(-1);
-        }
+        space = new VSSSpace(dim);
 
         efs = {10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200};
         if (index_name == "brute_force") {
@@ -90,16 +77,11 @@ public:
         } else if (index_name == "muvera") {
             index = new MuveraIndex<true>(dim, space, 20, 5, 32);
             efs = {200, 300, 400, 500, 600, 700, 800};
-            // index = new MuveraIndex<false>(dim, space, 20, 5, 32);
-            // efs = {700, 725, 750, 775, 800, 825, 850, 875, 900};
-        } else if (index_name == "paral_hnsw") {
-            index = new ParalHNSWIndex(dim, space, 16, 200);
+        } else if (index_name == "muvera_fde") {
+            index = new MuveraIndex<false>(dim, space, 20, 5, 32);
+            efs = {700, 725, 750, 775, 800, 825, 850, 875, 900};
         } else if (index_name == "prune_hnsw") {
             index = new PruneHNSWIndex(dim, space, 16, 200);
-        } else if (index_name == "dual_hnsw") {
-            index = new DualHNSWIndex(dim, space, 16, 200);
-        } else if (index_name == "sketch_hnsw") {
-            index = new SketchHNSWIndex(dim, space, 16, 200);
         } else {
             std::cerr << "Unknown index: " << index_name << std::endl;
             std::exit(-1);
@@ -233,7 +215,7 @@ public:
 
     void save_build_record(BuildRecord record) {
         std::string log_name = index_name + "-build-" + log_time + ".log";
-        fs::path log_path = fs::path("../log") / data_dir / metric_name / log_name;
+        fs::path log_path = fs::path("../log") / data_dir / log_name;
         fs::create_directories(log_path.parent_path());
 
         std::ofstream ofs(log_path);
@@ -252,7 +234,7 @@ public:
 
     void save_query_records(std::vector<QueryRecord>& records) {
         std::string csv_name = index_name + "-query-" + log_time + ".csv";
-        fs::path csv_path = fs::path("../log") / data_dir / metric_name / csv_name;
+        fs::path csv_path = fs::path("../log") / data_dir / csv_name;
         fs::create_directories(csv_path.parent_path());
 
         std::ofstream ofs(csv_path);

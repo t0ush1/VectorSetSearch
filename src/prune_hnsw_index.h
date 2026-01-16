@@ -8,9 +8,9 @@ namespace vss {
 
 class PruneHNSWIndex : public VSSIndex {
 public:
-    int vec_num;
+    size_t vec_num;
     float* vec_data;
-    int base_num;
+    size_t base_num;
     std::vector<const float*> base_data;
     std::vector<int> base_len;
     std::vector<int> vec_to_base;
@@ -20,7 +20,6 @@ public:
     HNSW<float>* hnsw;
 
     long metric_cand_num;
-    long metric_rerank_num;
     long metric_rerank_dist_comps;
 
     PruneHNSWIndex(int dim, VSSSpace* space, int M, int ef_construction)
@@ -51,7 +50,7 @@ public:
         hnsw = new HNSW<float>(space->space, vec_num, M, ef_construction);
 
         const float* data = vec_data;
-        for (int i = 0; i < vec_num; i++, data += dim) {
+        for (size_t i = 0; i < vec_num; i++, data += dim) {
             hnsw->add_point(data, i);
         }
     }
@@ -65,7 +64,7 @@ public:
     //     std::unordered_map<id_t, float> top_cand_back;
     //     std::unordered_map<id_t, float> cand_set_back;
 
-    //     std::unordered_set<int> base;
+    //     std::unordered_set<int> bases;
     //     std::vector<float> dists;
     //     float radius;
 
@@ -131,14 +130,14 @@ public:
     //         ctx.top_candidates.pop();
     //     }
 
-    //     ctx.base.clear();
+    //     ctx.bases.clear();
     //     ctx.radius = ctx.top_candidates.top().first;
     //     while (!ctx.top_candidates.empty()) {
     //         auto [dist, id] = ctx.top_candidates.top();
     //         ctx.top_candidates.pop();
     //         ctx.top_cand_back.erase(id);
     //         int B = vec_to_base[id];
-    //         ctx.base.insert(B);
+    //         ctx.bases.insert(B);
     //         ctx.dists[B] = std::min(ctx.dists[B], dist);
     //     }
     // }
@@ -152,7 +151,7 @@ public:
         std::vector<std::pair<float, id_t>> kicked;
         std::vector<std::pair<float, id_t>> pruned;
 
-        std::unordered_set<int> base;
+        std::unordered_set<int> bases;
         std::vector<float> dists;
         float radius;
 
@@ -161,15 +160,16 @@ public:
     };
 
     void incremental_search(struct Context& ctx, int k, int ef) {
+        std::vector<std::pair<float, id_t>> tmp_kicked;
+        std::vector<std::pair<float, id_t>> tmp_pruned;
         for (auto& pair : ctx.kicked) {
             ctx.top_candidates.push(pair);
             if (ctx.top_candidates.size() > ef) {
+                tmp_kicked.push_back(ctx.top_candidates.top());
                 ctx.top_candidates.pop();
             }
         }
         float lower_bound = ctx.top_candidates.top().first;
-        std::vector<std::pair<float, id_t>> tmp_kicked;
-        std::vector<std::pair<float, id_t>> tmp_pruned;
         for (auto& [dist, id] : ctx.pruned) {
             if (ctx.top_candidates.size() < ef || dist < lower_bound) {
                 ctx.candidate_set.emplace(-dist, id);
@@ -189,6 +189,7 @@ public:
         while (!ctx.candidate_set.empty()) {
             auto [cur_dist, cur_id] = ctx.candidate_set.top();
             if (-cur_dist > lower_bound && ctx.top_candidates.size() >= ef) {
+                // ctx.radius = -cur_dist;
                 break;
             }
             ctx.candidate_set.pop();
@@ -223,18 +224,18 @@ public:
             }
         }
 
+        ctx.radius = ctx.top_candidates.top().first;
         while (ctx.top_candidates.size() > k) {
             ctx.kicked.push_back(ctx.top_candidates.top());
             ctx.top_candidates.pop();
         }
 
-        ctx.base.clear();
-        ctx.radius = ctx.top_candidates.top().first;
+        ctx.bases.clear();
         while (!ctx.top_candidates.empty()) {
             auto [dist, id] = ctx.top_candidates.top();
             ctx.top_candidates.pop();
             int B = vec_to_base[id];
-            ctx.base.insert(B);
+            ctx.bases.insert(B);
             ctx.dists[B] = std::min(ctx.dists[B], dist);
         }
     }
@@ -248,38 +249,7 @@ public:
         }
     }
 
-    std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {
-        for (Context& ctx : contexts) {
-            id_t ep_id = hnsw->search_down_to_level<true>(hnsw->enterpoint, ctx.query, 0);
-            float dist = hnsw->fstdistfunc(ctx.query, hnsw->addr_data(ep_id), hnsw->dist_func_param);
-            ctx.top_candidates.emplace(dist, ep_id);
-            ctx.candidate_set.emplace(-dist, ep_id);
-            ctx.visited_list[ep_id] = true;
-        }
-
-        std::unordered_set<int> candidates;
-        for (int t = 0; t < ef; t += 10) {
-            for (int q = 0; q < q_len; q++) {
-                Context& ctx = contexts[q];
-                incremental_search(ctx, 10, 20);
-                candidates.insert(ctx.base.begin(), ctx.base.end());
-            }
-        }
-
-        std::priority_queue<std::pair<float, int>> result;
-        for (int B : candidates) {
-            float dist = space->distance(q_data, q_len, base_data[B], base_len[B]);
-            result.emplace(dist, B);
-            if (result.size() > k) {
-                result.pop();
-            }
-            metric_cand_num++;
-            metric_rerank_dist_comps += base_len[B] * q_len;
-        }
-
-        return result;
-    }
-
+    // 测试增量搜索
     // std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {
     //     for (Context& ctx : contexts) {
     //         id_t ep_id = hnsw->search_down_to_level<true>(hnsw->enterpoint, ctx.query, 0);
@@ -289,97 +259,212 @@ public:
     //         ctx.visited_list[ep_id] = true;
     //     }
 
-    //     std::priority_queue<std::pair<float, int>> result;
-    //     std::vector<bool> visited(base_num);
-
+    //     std::unordered_set<int> candidates;
     //     for (int t = 0; t < ef; t += 10) {
-    //         std::unordered_set<int> candidates;
     //         for (int q = 0; q < q_len; q++) {
     //             Context& ctx = contexts[q];
     //             incremental_search(ctx, 10, 20);
-    //             candidates.insert(ctx.base.begin(), ctx.base.end());
-    //         }
-
-    //         std::vector<int> query_order(q_len);
-    //         std::iota(query_order.begin(), query_order.end(), 0);
-    //         std::sort(query_order.begin(), query_order.end(),
-    //                   [&](int a, int b) { return contexts[a].radius > contexts[b].radius; });
-    //         for (int B : candidates) {
-    //             if (visited[B]) {
-    //                 continue;
-    //             }
-    //             visited[B] = true;
-    //             metric_cand_num++;
-
-    //             if (result.size() < k) {
-    //                 float dist = space->distance(q_data, q_len, base_data[B], base_len[B]);
-    //                 result.emplace(dist, B);
-    //                 metric_rerank_dist_comps += base_len[B] * q_len;
-    //             } else {
-    //                 float dist = 0;
-    //                 bool good = true;
-    //                 for (int q : query_order) {
-    //                     Context& ctx = contexts[q];
-    //                     float min_dist = std::numeric_limits<float>::max();
-    //                     for (int b = 0; b < base_len[B]; b++) {
-    //                         float d = hnsw->fstdistfunc(ctx.query, base_data[B] + b * dim, hnsw->dist_func_param);
-    //                         min_dist = std::min(min_dist, d);
-    //                     }
-    //                     dist += min_dist;
-    //                     metric_rerank_dist_comps += base_len[B];
-    //                     if (dist > result.top().first) {
-    //                         good = false;
-    //                         break;
-    //                     }
-    //                 }
-    //                 if (good) {
-    //                     result.emplace(dist, B);
-    //                     if (result.size() > k) {
-    //                         result.pop();
-    //                     }
-    //                 }
-    //             }
-
-    //             // bool good = result.size() < k;
-    //             // if (!good) {
-    //             //     good = true;
-    //             //     float lb = 0;
-    //             //     for (int q : query_order) {
-    //             //         lb += std::min(contexts[q].dists[B], contexts[q].radius);
-    //             //         if (lb > result.top().first) {
-    //             //             good = false;
-    //             //             break;
-    //             //         }
-    //             //     }
-    //             // }
-
-    //             // if (good) {
-    //             //     float dist = space->distance(q_data, q_len, base_data[B], base_len[B]);
-    //             //     result.emplace(dist, B);
-    //             //     if (result.size() > k) {
-    //             //         result.pop();
-    //             //     }
-    //             //     metric_rerank_num++;
-    //             //     metric_rerank_dist_comps += base_len[B] * q_len;
-    //             // }
+    //             candidates.insert(ctx.bases.begin(), ctx.bases.end());
     //         }
     //     }
+    //     metric_cand_num = candidates.size();
+
+    //     std::priority_queue<std::pair<float, int>> result;
+    //     for (int B : candidates) {
+    //         float dist = space->distance(q_data, q_len, base_data[B], base_len[B]);
+    //         result.emplace(dist, B);
+    //         if (result.size() > k) {
+    //             result.pop();
+    //         }
+    //         metric_rerank_dist_comps += q_len * base_len[B];
+    //     }
+    //     return result;
+    // }
+
+    // 增量搜索+剪枝+DCO
+    std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {
+        for (Context& ctx : contexts) {
+            id_t ep_id = hnsw->search_down_to_level<true>(hnsw->enterpoint, ctx.query, 0);
+            float dist = hnsw->fstdistfunc(ctx.query, hnsw->addr_data(ep_id), hnsw->dist_func_param);
+            ctx.top_candidates.emplace(dist, ep_id);
+            ctx.candidate_set.emplace(-dist, ep_id);
+            ctx.visited_list[ep_id] = true;
+        }
+
+        std::priority_queue<std::pair<float, int>> result;
+        std::vector<bool> visited(base_num);
+        result.emplace(std::numeric_limits<float>::max(), -1);
+
+        for (int t = 0; t < ef; t += 10) {
+            for (int q = 0; q < q_len; q++) {
+                Context& ctx = contexts[q];
+                incremental_search(ctx, 10, 20);
+                for (int B : ctx.bases) {
+                    if (visited[B]) {
+                        continue;
+                    }
+                    visited[B] = true;
+                    metric_cand_num++;
+
+                    float worst = result.top().first;
+                    if (worst < std::numeric_limits<float>::max()) {
+                        float lb = 0;
+                        for (int q = 0; q < q_len && lb < worst; q++) {
+                            lb += std::min(contexts[q].dists[B], contexts[q].radius);
+                        }
+                        if (lb >= worst) {
+                            continue;
+                        }
+                    }
+
+                    float dist = 0;
+                    std::vector<int> to_compute;
+                    for (int q = 0; q < q_len; q++) {
+                        if (contexts[q].dists[B] == std::numeric_limits<float>::max()) {
+                            to_compute.push_back(q);
+                        } else {
+                            dist += contexts[q].dists[B];
+                        }
+                    }
+                    std::sort(to_compute.begin(), to_compute.end(),
+                              [&](int q1, int q2) { return contexts[q1].radius < contexts[q2].radius; });
+                    for (int i = 0; i < to_compute.size() && dist < worst; i++) {
+                        Context& ctx = contexts[to_compute[i]];
+                        float d = std::numeric_limits<float>::max();
+                        for (int b = 0; b < base_len[B]; b++) {
+                            d = std::min(d, space->vdist(ctx.query, base_data[B] + b * dim));
+                        }
+                        ctx.dists[B] = d;
+                        dist += d;
+                        metric_rerank_dist_comps += base_len[B];
+                    }
+                    if (dist < worst) {
+                        result.emplace(dist, B);
+                        if (result.size() > k) {
+                            result.pop();
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    // 测试剪枝+DCO
+    // std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {
+    //     std::unordered_set<int> candidates;
+    //     for (Context& ctx : contexts) {
+    //         id_t ep_id = hnsw->search_down_to_level<true>(hnsw->enterpoint, ctx.query, 0);
+    //         float dist = hnsw->fstdistfunc(ctx.query, hnsw->addr_data(ep_id), hnsw->dist_func_param);
+    //         ctx.top_candidates.emplace(dist, ep_id);
+    //         ctx.candidate_set.emplace(-dist, ep_id);
+    //         ctx.visited_list[ep_id] = true;
+    //         incremental_search(ctx, ef, ef);
+    //         candidates.insert(ctx.bases.begin(), ctx.bases.end());
+    //     }
+    //     metric_cand_num = candidates.size();
+
+    //     std::priority_queue<std::pair<float, int>> result;
+    //     result.emplace(std::numeric_limits<float>::max(), -1);
+    //     for (int B : candidates) {
+    //         float worst = result.top().first;
+    //         if (worst < std::numeric_limits<float>::max()) {
+    //             float lb = 0;
+    //             for (int q = 0; q < q_len && lb < worst; q++) {
+    //                 lb += std::min(contexts[q].dists[B], contexts[q].radius);
+    //             }
+    //             if (lb >= worst) {
+    //                 continue;
+    //             }
+    //         }
+
+    //         float dist = 0;
+    //         std::vector<int> to_compute(q_len);
+    //         std::iota(to_compute.begin(), to_compute.end(), 0);
+    //         // for (int q = 0; q < q_len; q++) {
+    //         //     if (contexts[q].dists[B] == std::numeric_limits<float>::max()) {
+    //         //         to_compute.push_back(q);
+    //         //     } else {
+    //         //         dist += contexts[q].dists[B];
+    //         //     }
+    //         // }
+    //         std::sort(to_compute.begin(), to_compute.end(),
+    //                   [&](int q1, int q2) { return contexts[q1].radius < contexts[q2].radius; });
+    //         for (int i = 0; i < to_compute.size() && dist < worst; i++) {
+    //             Context& ctx = contexts[to_compute[i]];
+    //             float d = std::numeric_limits<float>::max();
+    //             for (int b = 0; b < base_len[B]; b++) {
+    //                 d = std::min(d, space->vdist(ctx.query, base_data[B] + b * dim));
+    //             }
+    //             ctx.dists[B] = d;
+    //             dist += d;
+    //             metric_rerank_dist_comps += base_len[B];
+    //         }
+    //         if (dist < worst) {
+    //             result.emplace(dist, B);
+    //             if (result.size() > k) {
+    //                 result.pop();
+    //             }
+    //         }
+    //     }
+
+    //     return result;
+    // }
+
+    // 测试 LB 剪枝
+    // std::priority_queue<std::pair<float, int>> search(const float* q_data, int q_len, int k, int ef) override {
+    //     std::unordered_set<int> candidates;
+    //     for (Context& ctx : contexts) {
+    //         id_t ep_id = hnsw->search_down_to_level<true>(hnsw->enterpoint, ctx.query, 0);
+    //         float dist = hnsw->fstdistfunc(ctx.query, hnsw->addr_data(ep_id), hnsw->dist_func_param);
+    //         ctx.top_candidates.emplace(dist, ep_id);
+    //         ctx.candidate_set.emplace(-dist, ep_id);
+    //         ctx.visited_list[ep_id] = true;
+    //         incremental_search(ctx, ef, ef);
+    //         candidates.insert(ctx.bases.begin(), ctx.bases.end());
+    //     }
+    //     metric_cand_num = candidates.size();
+
+    //     std::priority_queue<std::pair<float, int>> order;
+    //     for (int B : candidates) {
+    //         float lb = 0;
+    //         for (int q = 0; q < q_len; q++) {
+    //             lb += std::min(contexts[q].dists[B], contexts[q].radius);
+    //         }
+    //         order.emplace(-lb, B);
+    //     }
+    //     std::priority_queue<std::pair<float, int>> result;
+    //     while (!order.empty()) {
+    //         auto [lb, B] = order.top();
+    //         order.pop();
+    //         if (result.size() >= k && -lb > result.top().first) {
+    //             break;
+    //         }
+    //         float dist = space->distance(q_data, q_len, base_data[B], base_len[B]);
+    //         result.emplace(dist, B);
+    //         if (result.size() > k) {
+    //             result.pop();
+    //         }
+    //         metric_rerank_dist_comps += q_len * base_len[B];
+    //     }
+
     //     return result;
     // }
 
     std::vector<std::pair<std::string, long>> get_metrics() override {
         return {
-            {"hops", hnsw->metric_hops},
-            {"dist_comps", hnsw->metric_distance_computations + metric_rerank_dist_comps},
+            {"hnsw_hops", hnsw->metric_hops},
+            {"hnsw_dist_comps", hnsw->metric_distance_computations},
             {"cand_num", metric_cand_num},
-            {"rerank_num", metric_rerank_num},
+            {"rerank_dist_comps", metric_rerank_dist_comps},
+            {"tot_dist_comps", hnsw->metric_distance_computations + metric_rerank_dist_comps},
         };
     }
 
     void reset_metrics() override {
         metric_cand_num = 0;
         metric_rerank_dist_comps = 0;
-        metric_rerank_num = 0;
         hnsw->metric_hops = 0;
         hnsw->metric_distance_computations = 0;
     }
